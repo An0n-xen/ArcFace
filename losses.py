@@ -6,10 +6,10 @@ import math
 class ArcFaceLoss(nn.Module):
     """
     ArcFace: Additive Angular Margin Loss (Core Implementation)
-    
+
     Paper: ArcFace: Additive Angular Margin Loss for Deep Face Recognition
     Formula (Eq. 3): L = -log(e^(s*cos(θ_yi + m)) / (e^(s*cos(θ_yi + m)) + Σ e^(s*cos(θ_j))))
-    
+
     Args:
         in_features: embedding dimension (e.g., 512)
         out_features: number of classes
@@ -22,11 +22,11 @@ class ArcFaceLoss(nn.Module):
         self.out_features = out_features
         self.s = s
         self.m = m
-        
+
         # Weight matrix: [num_classes, embedding_dim]
         self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
         nn.init.xavier_uniform_(self.weight)
-        
+
         # Pre-compute constants for cos(θ + m) computation
         self.cos_m = math.cos(m)
         self.sin_m = math.sin(m)
@@ -38,34 +38,33 @@ class ArcFaceLoss(nn.Module):
         Args:
             input: embeddings [batch_size, in_features]
             label: ground truth labels [batch_size]
-        
+
         Returns:
             logits: [batch_size, out_features]
         """
         # 1. Normalize input features and weights (L2 norm)
-        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
-        
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight.to(input.device)))
+
         # 2. Calculate sin(θ) from cos(θ)
         sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
-        
+
         # 3. Calculate cos(θ + m) using: cos(θ+m) = cos(θ)cos(m) - sin(θ)sin(m)
         phi = cosine * self.cos_m - sine * self.sin_m
-        
+
         # 4. Numerical stability: if cos(θ) < cos(π-m), use alternative formula
         phi = torch.where(cosine > self.th, phi, cosine - self.mm)
-        
+
         # 5. Apply margin only to target class (one-hot)
         one_hot = torch.zeros(cosine.size(), device=input.device)
         one_hot.scatter_(1, label.view(-1, 1).long(), 1)
-        
+
         # 6. Combine: cos(θ+m) for target, cos(θ) for others
         output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
-        
+
         # 7. Scale by s
         output *= self.s
-        
-        return output
-    
+
+        return output    
     
 
 class ArcFaceLayer(nn.Module):
